@@ -2,7 +2,7 @@
 import json
 import logging
 import os
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 import requests
 from termcolor import colored
 
@@ -117,30 +117,52 @@ def set_config_variables(configs, server_url):
 
 
 def panel_url_validator(url):
+    parsed_url = urlparse(url)
+
+    url = urlunparse(parsed_url._replace(fragment=""))
+
     if not (url.startswith("https://") or url.startswith("http://")):
         print(colored("URL must start with http:// or https://", "red"))
         return False
+    
     if url.endswith("/"):
         url = url[:-1]
-    if url.endswith("admin"):
-        url = url.replace("/admin", "")
-    if url.endswith("admin/user"):
-        url = url.replace("/admin/user", "")
+
     print(colored("Checking URL...", "yellow"))
-    try:
-        request = requests.get(f"{url}/admin/")
+
+    try: 
+        request = requests.get(url, allow_redirects=True)
     except requests.exceptions.ConnectionError as e:
         print(colored("URL is not valid! Error in connection", "red"))
         print(colored(f"Error: {e}", "red"))
         return False
     
-    if request.status_code != 200:
-        print(colored("URL is not valid!", "red"))
-        print(colored(f"Error: {request.status_code}", "red"))
+    final_url = request.url
+
+    if final_url.endswith("/"):
+        final_url = final_url[:-1]
+    if final_url.endswith("/admin"):
+        final_url = final_url[:-6]
+    elif final_url.endswith("/admin/user"):
+        final_url = final_url[:-11]
+    
+    print(colored("Final URL after redirects: " + final_url, "yellow"))
+    
+    try:
+        admin_url = f"{final_url}/admin/"
+        admin_request = requests.get(admin_url)
+    except requests.exceptions.ConnectionError as e:
+        print(colored("URL is not valid! Error in connection to /admin/", "red"))
+        print(colored(f"Error: {e}", "red"))
         return False
-    elif request.status_code == 200:
+    
+    if admin_request.status_code != 200:
+        print(admin_request.json)
+        print(colored("URL is not valid!", "red"))
+        print(colored(f"Error: {admin_request.status_code}", "red"))
+        return False
+    elif admin_request.status_code == 200:
         print(colored("URL is valid!", "green"))
-    return url
 
 
 def bot_token_validator(token):
@@ -305,3 +327,4 @@ conf = load_config(db)
 server_url = load_server_url(db)
 set_config_variables(conf, server_url)
 db.close()
+
